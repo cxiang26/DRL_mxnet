@@ -1,0 +1,2 @@
+# DRL_mxnet
+我比较喜欢用mxnet，最近看了莫烦大神的RL教程，简单的用mxnet代替了tensorflow实现了部分代码。
