@@ -47,7 +47,7 @@ class DeepQNetwork:
         Qvalue = mx.sym.FullyConnected(data=relu1, num_hidden=self.n_actions,name='qvalue')
         #temp = Qvalue
         #coeff = mx.sym.sum(temp,axis=1,name='temp1')
-        output = mx.sym.sum((Qvalue - yInput)**2)/self.n_actions
+        output = mx.sym.sum((Qvalue - yInput)**2, axis=1)/self.n_actions
         loss=mx.sym.MakeLoss(output)
 
         if predict:
@@ -104,12 +104,10 @@ class DeepQNetwork:
         else:
             sample_index = np.random.choice(self.memory_counter, size=self.batch_size)
 
-        # Step 1: obtain random minibatch from replay memory
         minibatch = self.memory[sample_index, :]
         state_batch = minibatch[:, :self.n_features]
         nextState_batch = minibatch[:, -self.n_features:]
         reward = minibatch[:, self.n_features + 1]
-        # Step 2: calculate y
         q_next=[]
         q_target=[]
         for i in range(self.batch_size):
@@ -125,7 +123,7 @@ class DeepQNetwork:
         q_target[batch_index, eval_act_index] = reward + self.gamma * np.max(q_next, axis=1)
 
         self.Qnet.forward(mx.io.DataBatch([mx.nd.array(state_batch,ctx)],[mx.nd.array(q_target, ctx)]),is_train=True)
-        self.cost = self.Qnet.get_outputs()[0].asnumpy()
+        self.cost = np.sum(self.Qnet.get_outputs()[0].asnumpy())/self.batch_size
         self.Qnet.backward()
         self.Qnet.update()
         self.cost_his.append(self.cost)
