@@ -3,6 +3,7 @@ Double DQN & Natural DQN comparison,
 The Pendulum example.
 
 View more on my tutorial page: https://morvanzhou.github.io/tutorials/
+https://github.com/hnVfly/DRL_mxnet
 
 Using:
 Mxnet: 0.9.3
