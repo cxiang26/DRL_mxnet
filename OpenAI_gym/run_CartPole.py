@@ -1,6 +1,6 @@
 """
 Deep Q network,
-
+more:https://github.com/hnVfly/DRL_mxnet
 Using:
 Mxnet: 0.9.3
 gym: 0.7.3
