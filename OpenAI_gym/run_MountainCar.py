@@ -2,7 +2,7 @@
 Deep Q network,
 
 Using:
-mxnet: 0.9.3
+Mxnet: 0.9.3
 gym: 0.8.0
 """
 
