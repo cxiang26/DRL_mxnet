@@ -1,3 +1,5 @@
+# more:https://github.com/hnVfly/DRL_mxnet
+
 from maze_env import Maze
 from DQN_mxnet import DeepQNetwork
 
