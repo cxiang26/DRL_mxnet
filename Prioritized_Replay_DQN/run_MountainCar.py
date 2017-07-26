@@ -2,6 +2,7 @@
 The DQN improvement: Prioritized Experience Replay (based on https://arxiv.org/abs/1511.05952)
 
 View more on my tutorial page: https://morvanzhou.github.io/tutorials/
+https://github.com/hnVfly/DRL_mxnet
 
 Using:
 Mxnet: 0.9.3
