@@ -1,0 +1,169 @@
+"""
+Actor-Critic using TD-error as the Advantage, Reinforcement Learning.
+
+The cart pole example. Policy is oscillated.
+
+View more tutorial page: https://morvanzhou.github.io/tutorials/
+more code with mxnet: https://github.com/hnVfly/DRL_mxnet
+
+Using:
+Mxnet 0.7.0
+gym 0.9.1
+Python 2.7
+"""
+import mxnet as mx
+import numpy as np
+import matplotlib.pyplot as plt
+import gym
+
+np.random.seed(2)
+mx.random.seed(2)
+MAX_EPISODE = 3000
+DISPLAY_REWARD_THRESHOLD = 200
+MAX_EP_STEPS = 1000
+RENDER = False
+GAMMA = 0.9
+LR_A = 0.001
+LR_C = 0.01
+BATCHSIZE = 1
+CTX = mx.cpu()
+
+env = gym.make('CartPole-v0')
+env.seed(1)
+env = env.unwrapped
+
+N_F = env.observation_space.shape[0]
+N_A = env.action_space.n
+
+class Actor(object):
+    def __init__(self, n_features, n_actions, lr=0.0001, batchsize=1,ctx=mx.cpu()):
+        self.n_features = n_features
+        self.n_actions = n_actions
+        self.lr = lr
+        self.batchsize = batchsize
+        self.ctx = ctx
+        self.modA = self.createActornetwork()
+
+    def Actor_sym(self):
+        s = mx.sym.Variable('s')
+        act = mx.sym.Variable('act')
+        td_error = mx.sym.Variable('td_error')
+        l1 = mx.sym.FullyConnected(data=s, num_hidden=20, name='l1')
+        relu1 = mx.sym.Activation(data=l1, act_type='relu', name='relu1')
+        acts_prob = mx.sym.FullyConnected(data=relu1, num_hidden=self.n_actions, name='acts_prob')
+        acts_prob_sm = mx.sym.SoftmaxActivation(data=acts_prob, name='acts_prob_sm')
+        acts_prob_sm_temp = mx.sym.sum(acts_prob_sm * act, axis=1, keepdims=1)
+        log_prob = mx.sym.log(acts_prob_sm_temp)
+        exp_v = -log_prob * td_error
+        loss = mx.sym.MakeLoss(exp_v)
+        a = mx.sym.Group([loss, mx.sym.BlockGrad(acts_prob_sm)])
+        return a
+
+    def createActornetwork(self):
+        modActor = mx.mod.Module(symbol=self.Actor_sym(), data_names={'s',}, label_names={ 'act', 'td_error'}, context=self.ctx)
+        modActor.bind(data_shapes=[('s',(self.batchsize,self.n_features))],
+                      label_shapes=[('act', (self.batchsize, self.n_actions)), ('td_error',(self.batchsize,1))],
+                      for_training=True)
+        modActor.init_params(initializer=mx.init.Normal(0.1))
+        modActor.init_optimizer(optimizer='Adam',
+                                optimizer_params={'learning_rate':self.lr})
+        return modActor
+
+    def learn(self, s, a, td):
+        s = s[np.newaxis, :]
+        td_temp = np.ones([self.batchsize, 1])
+        ac_temp = np.zeros([self.batchsize, self.n_actions])
+        batch_index = np.arange(self.batchsize, dtype=np.int32)
+        td_temp[batch_index, 0] = td
+        ac_temp[batch_index, a] = 1.
+        feed_dict = mx.io.DataBatch([mx.nd.array(s, ctx=self.ctx)], [mx.nd.array(ac_temp, self.ctx),mx.nd.array(td_temp, self.ctx)])
+        self.modA.forward(feed_dict)
+        exp_v = np.squeeze(self.modA.get_outputs()[0].asnumpy())
+        self.modA.backward()
+        self.modA.update()
+        return exp_v
+
+    def choose_action(self, s):
+        s = s[np.newaxis, :]
+        self.modA.forward(mx.io.DataBatch([mx.nd.array(s, self.ctx)],[]), is_train=False)
+        probs = np.squeeze(self.modA.get_outputs()[1].asnumpy())
+        return np.random.choice(np.arange(probs.shape[0]), p=probs.ravel())
+
+class Critic(object):
+    def __init__(self, n_features, lr=0.01, batchsize=1, ctx=mx.cpu()):
+        self.n_features = n_features
+        self.lr = lr
+        self.batchsize = batchsize
+        self.ctx = ctx
+        self.modC = self.createCriticnetwork()
+
+    def Critic_sym(self):
+        s = mx.sym.Variable('s')
+        v_ = mx.sym.Variable('v_')
+        r = mx.sym.Variable('r')
+        l1 = mx.sym.FullyConnected(data=s, num_hidden=6, name='l1')
+        relu1 = mx.sym.Activation(data=l1, act_type='relu', name='relu1')
+        v = mx.sym.FullyConnected(data=relu1, num_hidden=1, name='v')
+        td_error = r + GAMMA * v_ - v
+        loss = mx.sym.MakeLoss(mx.sym.square(td_error))
+        return mx.sym.Group([loss, mx.sym.BlockGrad(td_error), mx.sym.BlockGrad(v)])
+
+    def createCriticnetwork(self):
+        modCritic = mx.mod.Module(symbol=self.Critic_sym(), data_names={'s',}, label_names={'v_','r'},context=self.ctx)
+        modCritic.bind(data_shapes=[('s',(self.batchsize, self.n_features))],
+                  label_shapes=[('v_',(self.batchsize,1)),('r',(self.batchsize,1))],
+                  for_training=True)
+        modCritic.init_params(initializer=mx.init.Normal(0.1))
+        modCritic.init_optimizer(optimizer='Adam',
+                            optimizer_params={'learning_rate':self.lr})
+        return modCritic
+
+    def learn(self, s, r, s_):
+        s, s_ = s[np.newaxis,:], s_[np.newaxis,:]
+        self.modC.forward(mx.io.DataBatch([mx.nd.array(s_, self.ctx)],[]), is_train=False)
+        v_ = self.modC.get_outputs()[2].asnumpy()
+        r_temp = np.zeros((self.batchsize,1))
+        r_temp[0,0] = r
+        feed_dict = mx.io.DataBatch([mx.nd.array(s, self.ctx)],[mx.nd.array(v_, self.ctx),mx.nd.array(r_temp,self.ctx)])
+        self.modC.forward(feed_dict)
+        td_error = np.squeeze(self.modC.get_outputs()[1].asnumpy())
+        self.modC.backward()
+        self.modC.update()
+        return td_error
+
+actor = Actor(n_features=N_F, n_actions=N_A, lr=LR_A, batchsize=BATCHSIZE, ctx=CTX)
+critic = Critic(n_features=N_F, lr=LR_C, batchsize=BATCHSIZE, ctx=CTX)
+reward = []
+
+for i_episode in range(MAX_EPISODE):
+    s = env.reset()
+    t = 0
+    track_r = []
+
+    while True:
+        if RENDER: env.render()
+        a = actor.choose_action(s)
+        s_, r, done, info = env.step(a)
+        if done: r = -20
+        track_r.append(r)
+        td_error = critic.learn(s, r, s_)
+        actor.learn(s, a, td_error)
+        s = s_
+        t += 1
+        if done  or t >= MAX_EP_STEPS:
+            ep_rs_sum = sum(track_r)
+            if 'running_reward' not in globals():
+                runing_reward = ep_rs_sum
+            else:
+                runing_reward = runing_reward * 0.95 + ep_rs_sum * 0.05
+            reward.append(runing_reward)
+            if runing_reward > DISPLAY_REWARD_THRESHOLD: RENDER=True
+            print('episode:', i_episode, 'reward:', int(runing_reward))
+            break
+
+    if i_episode == MAX_EPISODE-1:
+        plt.figure(1)
+        plt.plot(reward)
+        plt.xlabel('i_episode')
+        plt.ylabel('reward')
+        plt.show()
